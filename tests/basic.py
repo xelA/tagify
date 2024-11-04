@@ -7,7 +7,10 @@ def add(a, b):
 
 test = TemplateParser(
     context={
-        "name": "Alice"
+        "user": {
+            "name": "Alice",
+            "age": 30
+        }
     },
     functions={
         "add": add
@@ -17,8 +20,12 @@ test = TemplateParser(
 print(
     test.render(
         """
-        Hey there, my name is {name}, and 1+1 = {add(1a, 1)}.
+        {% set lmao = looool %}
+        {user.__init__}
+        Hey there, my name is { user.name } and I am {user.age} years old
+        and 1+1 = {add(1a, 1)}.
         Exception test: {namea}
+        also {lmao}
 
         {% if 3 == 3 %}
             This is true!

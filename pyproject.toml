@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pdm.source]
+name = "public"
+url = "https://github.com/xelA/tagify"
+
+[project]
+name = "tagify"
+description = "Parser that converts strings with variables and functions to more advance strings"
+requires-python = ">=3.11.0"
+license = {text = "MIT"}
+
+dynamic = ["version"]
+readme = "README.md"
+keywords = ["discord", "tag", "parser", "template"]
+authors = [{name = "AlexFlipnote", email = "root@alexflipnote.dev"}]
+
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/xelA/tagify"
+
+[project.optional-dependencies]
+dev = ["pyright", "flake8", "toml"]
+maintainer = ["twine", "wheel", "build"]
+
+[tool.setuptools]
+packages = [
+  "tagify",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "tagify.__version__"}
+readme = {file = ["README.md"]}
+
+[tool.flake8]
+max-line-length = 128
+ignore = [
+  "D210", "D400", "D401", "D100", "D202", "D413", "D107",
+  "D101", "D103", "D102", "E121", "D205", "D209", "D105",
+  "E252", "W605", "W504", "E128", "E124", "E999", "W504"
+]
+
+[tool.pyright]
+reportOptionalOperand = "none"
+reportOptionalSubscript = "none"
+reportOptionalMemberAccess = "none"
+reportUnnecessaryTypeIgnoreComment = "warning"
+typeCheckingMode = "basic"
+pythonVersion = "3.11"
+
+include = [
+  "tagify",
+]
+
+exclude = [
+  "**/__pycache__", "**/*.pyc", "*.egg-info",
+  ".venv", "build", "docs", "dist",
+]

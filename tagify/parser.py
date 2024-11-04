@@ -3,11 +3,12 @@ import re
 from typing import Any, Callable
 
 # RegEx patterns
-_re_placeholder = re.compile(r"{(\w+|\w+\(.+?\))}")
+_re_placeholder = re.compile(r"{\s*([\w\d\.]+|\w+\(.+?\))\s*}")
 _re_blocks = re.compile(r"{% elif (.+?) %}|{% else %}")
-_re_conditions = re.compile(r"{% elif (.+?) %}")
 _re_terms = re.compile(r"(\s&&\s|\s\|\|\s)")
 _re_match = re.compile(r"([\w\(\),]+)\s*(==|!=)\s*(.+)")
+_re_variables = re.compile(r"{% set ([\w\d]+)\s*=\s*(.*) %}")
+_re_conditions = re.compile(r"{% elif (.+?) %}")
 _re_conditional_pattern = re.compile(
     r"{% if (.+?) %}(.+?){% endif %}",
     flags=re.DOTALL
@@ -19,23 +20,35 @@ __all__ = (
 
 
 class TemplateParser:
-    """
-    NOTE:
-    This style might change later on, but for now it works.
-    """
     def __init__(
         self,
         context: dict | None = None,
-        functions: dict | None = None
+        functions: dict | None = None,
+        *,
+        conditionals: bool = True,
     ):
         self.context: dict[str, Any] = context or {}
         self.functions: dict[str, Callable] = functions or {}
 
+        self._conditionals = conditionals
+
     def render(self, template: str) -> str:
         """Render the template with placeholders, conditionals, and function calls."""
-        template = self._process_conditionals(template)  # Process if/else/elif blocks
+        template = self._process_variables(template)  # Replace variables
+
+        if self._conditionals:
+            template = self._process_conditionals(template)  # Process if/else/elif blocks
+
         template = self._process_placeholders(template)  # Replace placeholders and function calls
-        return template
+        return template.strip()  # Remove any trailing whitespace
+
+    def _process_variables(self, template: str) -> str:
+        """Replace all variables in the template with their values."""
+        for match in _re_variables.finditer(template):
+            key, value = match.groups()
+            self.context[key.strip()] = value.strip()
+
+        return _re_variables.sub("", template)
 
     def _parse_placeholder(self, key: str) -> str:
         """Evaluate placeholders or function calls."""
@@ -43,16 +56,24 @@ class TemplateParser:
         # Check if the placeholder is a function call
         if "(" in key and key.endswith(")"):
             func_name, args = self._parse_function_call(key)
-
             if func_name in self.functions:
                 try:
                     return str(self.functions[func_name](*args))
                 except Exception as e:
                     return f"[ FUNC_ERR:{func_name}: {e} ]"
-
             return safe_unused  # Return unmodified if function not found
 
-        return str(self.context.get(key, safe_unused))
+        # Split the key by dots and try to access each part as an attribute
+        parts = key.split(".")
+        value = self.context.get(parts[0], safe_unused)  # Start with the base context
+
+        try:
+            for part in parts[1:]:
+                value = value[part]  # Dig into each nested dict value
+        except KeyError:
+            return safe_unused  # Return as-is if any part is inaccessible
+
+        return str(value)
 
     def _process_placeholders(self, template: str) -> str:
         """Replace all placeholders in the template with their values."""
@@ -118,7 +139,7 @@ class TemplateParser:
 
     def _parse_function_call(self, func_string: str) -> tuple[str, list[str]]:
         """Parse function calls like 'func_name(arg1, arg2)'."""
-        func_name = func_string.split('(', 1)[0]
+        func_name = func_string.split("(", 1)[0]
         args_string = func_string[len(func_name) + 1:-1]  # Remove function name and parentheses
-        args = [arg.strip().strip('"').strip("'") for arg in args_string.split(',')]
+        args = [arg.strip().strip('"').strip("'") for arg in args_string.split(",")]
         return func_name, args
