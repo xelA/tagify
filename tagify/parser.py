@@ -69,6 +69,9 @@ class TemplateParser:
 
         try:
             for part in parts[1:]:
+                if not isinstance(value, dict):
+                    return safe_unused  # Reached a non-dict value, return as-is
+
                 value = value[part]  # Dig into each nested dict value
         except KeyError:
             return safe_unused  # Return as-is if any part is inaccessible
