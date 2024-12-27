@@ -231,6 +231,11 @@ class TemplateParser:
         left_value = str(self.context.get(left, left))
         right_value = right.strip('"').strip("'")
 
+        if left_value in self.context:
+            left_value = str(self.context[left_value])
+        if right_value in self.context:
+            right_value = str(self.context[right_value])
+
         if left_value.isdigit() and right_value.isdigit():
             left_value = int(left_value)
             right_value = int(right_value)
@@ -259,10 +264,14 @@ class TemplateParser:
             The function name and arguments.
         """
         func_name = func_string.split("(", 1)[0]
-        args_string = func_string[len(func_name) + 1:-1]  # Remove function name and parentheses
-        args = [
-            arg.strip().strip('"').strip("'")
-            for arg in args_string.split(",")
-        ]
+        args_string = func_string[len(func_name) + 1:-1]
+        args = [arg.strip() for arg in args_string.split(",")]
+
+        for i, g in enumerate(list(args)):
+            if g in self.context:
+                args[i] = str(self.context[g])
+
+            else:
+                args[i] = g.strip('"').strip("'")
 
         return func_name, args
