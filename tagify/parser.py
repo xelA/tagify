@@ -1,9 +1,9 @@
 import re
 
-from typing import Any, Callable
+from typing import Any
 
 # RegEx patterns
-_re_placeholder = re.compile(r"{\s*([\w\d\.]+|\w+\(.+?\))\s*}")
+_re_placeholder = re.compile(r"{\s*([\w\d]+(?:\.[\w\d]+)*(\(.+?\))?)\s*}")
 _re_blocks = re.compile(r"{% elif (.+?) %}|{% else %}")
 _re_terms = re.compile(r"(\s&&\s|\s\|\|\s)")
 _re_match = re.compile(r"([\w\(\),]+)\s*(==|!=)\s*(.+)")
@@ -23,12 +23,10 @@ class TemplateParser:
     def __init__(
         self,
         context: dict | None = None,
-        functions: dict | None = None,
         *,
         conditionals: bool = True,
     ):
         self.context: dict[str, Any] = context or {}
-        self.functions: dict[str, Callable] = functions or {}
 
         self._conditionals = conditionals
 
@@ -53,30 +51,27 @@ class TemplateParser:
     def _parse_placeholder(self, key: str) -> str:
         """Evaluate placeholders or function calls."""
         safe_unused = "{" + str(key) + "}"
-        # Check if the placeholder is a function call
-        if "(" in key and key.endswith(")"):
-            func_name, args = self._parse_function_call(key)
-            if func_name in self.functions:
-                try:
-                    return str(self.functions[func_name](*args))
-                except Exception as e:
-                    return f"[ FUNC_ERR:{func_name}: {e} ]"
-            return safe_unused  # Return unmodified if function not found
 
-        # Split the key by dots and try to access each part as an attribute
-        parts = key.split(".")
-        value = self.context.get(parts[0], safe_unused)  # Start with the base context
+        parts = key.split(".")  # Split by dots to access nested keys/attributes
+        current = self.context  # Start with the base context
 
         try:
-            for part in parts[1:]:
-                if not isinstance(value, dict):
-                    return safe_unused  # Reached a non-dict value, return as-is
+            for part in parts:
+                if "(" in part and part.endswith(")"):  # Check for a function call
+                    func_name, args = self._parse_function_call(part)
+                    if callable(current[func_name]):
+                        current = current[func_name](*args)  # Call the function
+                    else:
+                        return safe_unused  # Not callable, return as-is
+                else:
+                    if isinstance(current, dict):
+                        current = current.get(part, safe_unused)  # Dig into nested dicts
+                    else:
+                        return safe_unused  # Part is not accessible, return as-is
+        except Exception as e:
+            return f"[ ERROR:{key}: {e} ]"  # Handle any unexpected errors
 
-                value = value[part]  # Dig into each nested dict value
-        except KeyError:
-            return safe_unused  # Return as-is if any part is inaccessible
-
-        return str(value)
+        return str(current) if not callable(current) else safe_unused
 
     def _process_placeholders(self, template: str) -> str:
         """Replace all placeholders in the template with their values."""
@@ -116,6 +111,7 @@ class TemplateParser:
 
             if operator == "&&":
                 result = result and next_term
+
             elif operator == "||":
                 result = result or next_term
 
@@ -137,12 +133,20 @@ class TemplateParser:
 
         if operator == "==":
             return left_value == right_value
+
         elif operator == "!=":
             return left_value != right_value
+
+        else:
+            raise ValueError(f"Invalid operator: {operator}")
 
     def _parse_function_call(self, func_string: str) -> tuple[str, list[str]]:
         """Parse function calls like 'func_name(arg1, arg2)'."""
         func_name = func_string.split("(", 1)[0]
         args_string = func_string[len(func_name) + 1:-1]  # Remove function name and parentheses
-        args = [arg.strip().strip('"').strip("'") for arg in args_string.split(",")]
+        args = [
+            arg.strip().strip('"').strip("'")
+            for arg in args_string.split(",")
+        ]
+
         return func_name, args
