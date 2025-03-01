@@ -249,7 +249,7 @@ class TemplateParser:
         else:
             raise ValueError(f"Invalid operator: {operator}")
 
-    def _parse_function_call(self, func_string: str) -> tuple[str, list[str]]:
+    def _parse_function_call(self, expr: str) -> tuple[str, list[str | int]]:
         """
         Parse function calls like 'func_name(arg1, arg2)'.
 
@@ -263,15 +263,45 @@ class TemplateParser:
         `tuple[str, list[str]]`
             The function name and arguments.
         """
-        func_name = func_string.split("(", 1)[0]
-        args_string = func_string[len(func_name) + 1:-1]
-        args = [arg.strip() for arg in args_string.split(",")]
+        func_name, arg_string = expr.split("(", 1)
+        arg_string = arg_string.rstrip(")")
 
-        for i, g in enumerate(list(args)):
-            if g in self.context:
-                args[i] = str(self.context[g])
+        args = []
+        current_arg = []
+        in_quotes = False
+        quote_char = ""
+
+        for char in arg_string:
+            if char in ('"', "'"):
+                if not in_quotes:
+                    in_quotes = True
+                    quote_char = char
+
+                elif quote_char == char:
+                    in_quotes = False
+                    quote_char = ""
+
+            if char == "," and not in_quotes:
+                args.append("".join(current_arg).strip())
+                current_arg = []
 
             else:
-                args[i] = g.strip('"').strip("'")
+                current_arg.append(char)
 
-        return func_name, args
+        if current_arg:
+            args.append("".join(current_arg).strip())
+
+        for i, arg in enumerate(args):
+            if arg in self.context:
+                args[i] = str(self.context[arg])
+
+            elif arg.isdigit():
+                args[i] = int(arg)
+
+            elif (
+                (arg.startswith('"') and arg.endswith('"')) or
+                (arg.startswith("'") and arg.endswith("'"))
+            ):
+                args[i] = arg[1:-1]
+
+        return func_name.strip(), args

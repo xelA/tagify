@@ -1,4 +1,5 @@
 from tagify import TemplateParser
+import random
 
 
 def add(a, b):
@@ -13,6 +14,10 @@ def but_add(a, b):
     return add(int(a), -int(b))
 
 
+def random_choice(*args):
+    return random.choice(args)
+
+
 test = TemplateParser(
     context={
         "user": {
@@ -23,6 +28,10 @@ test = TemplateParser(
         "sub": {
             "sub": sub,
             "but_add": but_add
+        },
+        "random": {
+            "randint": random.randint,
+            "choice": random_choice
         }
     }
 )
@@ -39,6 +48,9 @@ print(
         and 1a+1 (invalid) is {add(1a, 1)}
         Exception test: {namea}
         also {lmao}
+
+        {random.randint(1, 100)}
+        {random.choice("a,2", "b", "c", f)}
 
         but_add: {sub.but_add(1, 1)}
 
