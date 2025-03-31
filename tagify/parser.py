@@ -30,6 +30,8 @@ class TemplateParser:
         conditionals: bool = True,
     ):
         """
+        The parser class for Tagify.
+
         Parameters
         ----------
         context: `dict`
@@ -92,15 +94,14 @@ class TemplateParser:
 
         Parameters
         ----------
-        key: `str`
-            The placeholder key to evaluate.
+        m: `re.Match`
+            The match object for the placeholder.
 
         Returns
         -------
         `str`
             The evaluated placeholder value.
         """
-
         if len(m.groups()) == 1:
             func_key = m.group(1)
             value = ""
@@ -146,7 +147,7 @@ class TemplateParser:
             The processed template string.
         """
         return _re_placeholder.sub(
-            lambda m: self._parse_placeholder(m),
+            self._parse_placeholder,
             template
         )
 
@@ -185,9 +186,9 @@ class TemplateParser:
         """
         condition, content = match.groups()
         blocks = _re_blocks.split(content)
-        conditions = [condition] + _re_conditions.findall(content)
+        conditions = [condition, *_re_conditions.findall(content)]
 
-        for cond, block in zip(conditions, blocks):
+        for cond, block in zip(conditions, blocks, strict=False):
             if self._evaluate_condition(cond.strip()):
                 return block.strip()
 
@@ -254,14 +255,15 @@ class TemplateParser:
             left_value = int(left_value)
             right_value = int(right_value)
 
-        if operator == "==":
-            return left_value == right_value
+        match operator:
+            case "==":
+                return left_value == right_value
 
-        elif operator == "!=":
-            return left_value != right_value
+            case "!=":
+                return left_value != right_value
 
-        else:
-            raise ValueError(f"Invalid operator: {operator}")
+            case _:
+                raise ValueError(f"Invalid operator: {operator}")
 
     def _parse_function_call(self, expr: str) -> list[str | int]:
         """
@@ -269,7 +271,7 @@ class TemplateParser:
 
         Parameters
         ----------
-        func_string: `str`
+        expr: `str`
             The function call string to parse.
 
         Returns
