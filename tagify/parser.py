@@ -3,7 +3,10 @@ import re
 from typing import Any
 
 # RegEx patterns
-_re_placeholder = re.compile(r"{\s*([\w\d]+(?:\.[\w\d]+)*(\(.+?\))?)\s*}")
+_re_placeholder = re.compile(
+    r"{\s*([\w\d.]+)*(?:\(([\s\S]+?)\))?\s*}",
+    flags=re.MULTILINE | re.DOTALL
+)
 _re_blocks = re.compile(r"{% elif (.+?) %}|{% else %}")
 _re_terms = re.compile(r"(\s&&\s|\s\|\|\s)")
 _re_match = re.compile(r"([\w\(\),]+)\s*(==|!=)\s*(.+)")
@@ -52,6 +55,9 @@ class TemplateParser:
         `str`
             The rendered template string.
         """
+        # Strip any leading or trailing whitespace
+        template = template.strip()
+
         template = self._process_variables(template)  # Replace variables
 
         if self._conditionals:
@@ -80,7 +86,7 @@ class TemplateParser:
 
         return _re_variables.sub("", template)
 
-    def _parse_placeholder(self, key: str) -> str:
+    def _parse_placeholder(self, m: re.Match) -> str:
         """
         Evaluate placeholders or function calls.
 
@@ -94,28 +100,36 @@ class TemplateParser:
         `str`
             The evaluated placeholder value.
         """
-        safe_unused = "{" + str(key) + "}"
 
-        parts = key.split(".")  # Split by dots to access nested keys/attributes
+        if len(m.groups()) == 1:
+            func_key = m.group(1)
+            value = ""
+        else:
+            func_key, value = m.groups()
+
+        safe_unused = "{" + str(func_key) + "}"
+
+        parts = func_key.split(".")  # Split by dots to access nested keys/attributes
         current = self.context  # Start with the base context
 
         try:
             for part in parts:
-                if "(" in part and part.endswith(")"):  # Check for a function call
-                    func_name, args = self._parse_function_call(part)
-                    if callable(current[func_name]):
-                        current = current[func_name](*args)  # Call the function
-                    else:
-                        return safe_unused  # Not callable, return as-is
-                else:
-                    if isinstance(current, dict):
-                        current = current.get(part, safe_unused)  # Dig into nested dicts
-                    else:
-                        return safe_unused  # Part is not accessible, return as-is
-        except Exception as e:
-            return f"[ ERROR:{key}: {e} ]"  # Handle any unexpected errors
+                if isinstance(current, dict):
+                    current = current.get(part, safe_unused)
 
-        return str(current) if not callable(current) else safe_unused
+                if isinstance(current, dict):
+                    # Continue digging for now
+                    # There is probably a better way, but this works for now
+                    continue
+
+                if callable(current):
+                    args = self._parse_function_call(value)
+                    current = current(*args)  # Call the function
+
+        except Exception as e:
+            return f"[ ERROR:{func_key}: {e} ]"  # Handle any unexpected errors
+
+        return str(current) if not callable(current) else safe_unused  # Return as-is
 
     def _process_placeholders(self, template: str) -> str:
         """
@@ -132,7 +146,7 @@ class TemplateParser:
             The processed template string.
         """
         return _re_placeholder.sub(
-            lambda m: self._parse_placeholder(m.group(1)),
+            lambda m: self._parse_placeholder(m),
             template
         )
 
@@ -249,7 +263,7 @@ class TemplateParser:
         else:
             raise ValueError(f"Invalid operator: {operator}")
 
-    def _parse_function_call(self, expr: str) -> tuple[str, list[str | int]]:
+    def _parse_function_call(self, expr: str) -> list[str | int]:
         """
         Parse function calls like 'func_name(arg1, arg2)'.
 
@@ -263,15 +277,12 @@ class TemplateParser:
         `tuple[str, list[str]]`
             The function name and arguments.
         """
-        func_name, arg_string = expr.split("(", 1)
-        arg_string = arg_string.rstrip(")")
-
         args = []
         current_arg = []
         in_quotes = False
         quote_char = ""
 
-        for char in arg_string:
+        for char in expr:
             if char in ('"', "'"):
                 if not in_quotes:
                     in_quotes = True
@@ -304,4 +315,9 @@ class TemplateParser:
             ):
                 args[i] = arg[1:-1]
 
-        return func_name.strip(), args
+        return [
+            # Process placeholders in the arguments as well
+            self._process_placeholders(g)
+            if isinstance(g, str) else g
+            for g in args
+        ]

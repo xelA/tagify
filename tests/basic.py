@@ -50,15 +50,11 @@ print(
         also {lmao}
 
         {random.randint(1, 100)}
-        {random.choice("a,2", "b", "c", f)}
+        {random.choice("a,2", "b", "c", f, {lmao})}
 
         but_add: {sub.but_add(1, 1)}
 
-        {% if 2 == num %}
-            This is true!
-        {% else %}
-            This is false.
-        {% endif %}
+        {% if 2 == num %}This is true!{% else %}This is false.{% endif %}
         """
     )
 )
