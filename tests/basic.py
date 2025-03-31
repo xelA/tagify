@@ -41,10 +41,12 @@ print(
         """
         {% set lmao = looool %}
         {% set num = 2 %}
+        {% set rand = {random.randint(1, 100)} %}
         {user.__init__}
         Hey there, my name is { user.name } and I am {user.age} years old
         and 1+1 = {add(1, 1)}.
         and 1-num = {sub.sub(1, num)}
+        and 1+rand = {add(1, {rand})}
         and 1a+1 (invalid) is {add(1a, 1)}
         Exception test: {namea}
         also {lmao}

@@ -84,7 +84,7 @@ class TemplateParser:
         """
         for match in _re_variables.finditer(template):
             key, value = match.groups()
-            self.context[key.strip()] = value.strip()
+            self.context[key.strip()] = self._process_placeholders(value.strip())
 
         return _re_variables.sub("", template)
 
