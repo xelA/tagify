@@ -9,9 +9,8 @@ _re_placeholder = re.compile(
 )
 _re_blocks = re.compile(r"{% elif (.+?) %}|{% else %}")
 _re_terms = re.compile(r"(\s&&\s|\s\|\|\s)")
-_re_match = re.compile(r"([\w\(\),]+)\s*(==|!=)\s*(.+)")
+_re_match = re.compile(r"([\w\(\)\.,]+)\s*(==|!=)\s*(.+)")
 _re_variables = re.compile(r"{% set ([\w\d]+)\s*=\s*(.*) %}")
-_re_conditions = re.compile(r"{% elif (.+?) %}")
 _re_conditional_pattern = re.compile(
     r"{% if (.+?) %}(.+?){% endif %}",
     flags=re.DOTALL
@@ -68,6 +67,32 @@ class TemplateParser:
         template = self._process_placeholders(template)  # Replace placeholders and function calls
         return template.strip()  # Remove any trailing whitespace
 
+    def _process_quotes(self, key: str) -> tuple[bool, str]:
+        """
+        Replace all quotes in the template with their escaped equivalents.
+
+        Parameters
+        ----------
+        key: `str`
+            The template string to process.
+
+        Returns
+        -------
+        `tuple[bool, str]`
+            A tuple containing a boolean indicating if the key is quoted and the
+            processed key.
+        """
+        is_quotes = False
+        quotes = ("'", '"')
+
+        for q in quotes:
+            if key.startswith(q) and key.endswith(q):
+                is_quotes = True
+                key = str(key[1:-1])
+                break
+
+        return is_quotes, key
+
     def _process_variables(self, template: str) -> str:
         """
         Replace all variables in the template with their values.
@@ -87,6 +112,40 @@ class TemplateParser:
             self.context[key.strip()] = self._process_placeholders(value.strip())
 
         return _re_variables.sub("", template)
+
+    def _resolve_key(self, key: str) -> str | int | bool | dict | None:
+        """
+        Resolve a key in the context.
+
+        It's a more simple version of `_parse_placeholder` that only handles
+        simple keys, not function calls.
+
+        Parameters
+        ----------
+        key: `str`
+            The key to resolve.
+
+        Returns
+        -------
+        `Any`
+            The resolved value.
+        """
+        is_quotes, key = self._process_quotes(key)
+        if is_quotes:
+            return key  # Already a string, return as-is
+
+        parts = key.split(".")
+        current = self.context
+
+        for part in parts:
+            if isinstance(current, dict):
+                current = current.get(part)
+                if current is None:
+                    return None
+            else:
+                return None
+
+        return current
 
     def _parse_placeholder(self, m: re.Match) -> str:
         """
@@ -185,14 +244,31 @@ class TemplateParser:
             The processed template string.
         """
         condition, content = match.groups()
-        blocks = _re_blocks.split(content)
-        conditions = [condition, *_re_conditions.findall(content)]
+
+        # Split content into conditional blocks
+        blocks = []
+        conditions = [condition]
+
+        cursor = 0
+        for m in _re_blocks.finditer(content):
+            start, end = m.span()
+            blocks.append(content[cursor:start])
+            cursor = end
+
+            # Append matched condition (elif or else)
+            if m.group(1):  # elif condition
+                conditions.append(m.group(1).strip())
+            else:
+                conditions.append(None)  # else block
+
+        # Final block after last {% elif %} or {% else %}
+        blocks.append(content[cursor:])
 
         for cond, block in zip(conditions, blocks, strict=False):
-            if self._evaluate_condition(cond.strip()):
+            if cond is None or self._evaluate_condition(cond.strip()):
                 return block.strip()
 
-        return blocks[-1].strip() if "{% else %}" in content else ""
+        return ""
 
     def _evaluate_condition(self, condition: str) -> bool:
         """
@@ -226,7 +302,7 @@ class TemplateParser:
 
     def _evaluate_comparison(self, term: str) -> bool:
         """
-        Evaluate a single comparison expression like 'user == "Alice"'.
+        Evaluate a single comparison expression like 'user.name == "Alice"'.
 
         Parameters
         ----------
@@ -238,30 +314,59 @@ class TemplateParser:
         `bool`
             The evaluated comparison result.
         """
-        match = _re_match.match(term)
-        if not match:
+        term = term.strip()
+
+        # Handle `not something`
+        if term.startswith("not "):
+            key = term[4:].strip()
+            value = self._resolve_key(key)
+            return not bool(value)
+
+        # Handle simple truthy checks
+        if (
+            _re_match.match(term) is None and
+            (term.isidentifier() or "." in term)
+        ):
+            value = self._resolve_key(term)
+            return bool(value)
+
+        match_eq = _re_match.match(term)
+        if not match_eq:
             return False
 
-        left, operator, right = match.groups()
-        left_value = str(self.context.get(left, left))
-        right_value = right.strip('"').strip("'")
+        left_raw, operator, right_raw = match_eq.groups()
 
-        if left_value in self.context:
-            left_value = str(self.context[left_value])
-        if right_value in self.context:
-            right_value = str(self.context[right_value])
+        # Clean quotes
+        _, left_clean = self._process_quotes(left_raw.strip())
+        _, right_clean = self._process_quotes(right_raw.strip())
 
-        if left_value.isdigit() and right_value.isdigit():
-            left_value = int(left_value)
-            right_value = int(right_value)
+        # Try to resolve both sides from context
+        left_value = self._resolve_key(left_clean)
+        right_value = self._resolve_key(right_clean)
+
+        # Fallback to raw literal if resolution failed
+        if left_value is None:
+            left_value = left_clean
+        if right_value is None:
+            right_value = right_clean
+
+        # Try to cast both to int (safely)
+        for side, value in (("left", left_value), ("right", right_value)):
+            if isinstance(value, str):
+                try:
+                    value = float(value) if "." in value else int(value)
+                except ValueError:
+                    pass
+            if side == "left":
+                left_value = value
+            else:
+                right_value = value
 
         match operator:
             case "==":
                 return left_value == right_value
-
             case "!=":
                 return left_value != right_value
-
             case _:
                 raise ValueError(f"Invalid operator: {operator}")
 
