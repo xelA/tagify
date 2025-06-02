@@ -9,7 +9,7 @@ _re_placeholder = re.compile(
 )
 _re_blocks = re.compile(r"{% elif (.+?) %}|{% else %}")
 _re_terms = re.compile(r"(\s&&\s|\s\|\|\s)")
-_re_match = re.compile(r"([\w\(\)\.,]+)\s*(==|!=)\s*(.+)")
+_re_match = re.compile(r"([\w\(\)\., {}]+)\s*(==|!=)\s*(.+)")
 _re_variables = re.compile(r"{% set ([\w\d]+)\s*=\s*(.*) %}")
 _re_conditional_pattern = re.compile(
     r"{% if (.+?) %}(.+?){% endif %}",
@@ -137,15 +137,29 @@ class TemplateParser:
         parts = key.split(".")
         current = self.context
 
-        for part in parts:
-            if isinstance(current, dict):
-                current = current.get(part)
-                if current is None:
-                    return None
-            else:
-                return None
+        try:
+            for part in parts:
+                clean_part = part.split("(")[0]
 
-        return current
+                if isinstance(current, dict):
+                    current = current.get(clean_part)
+
+                if isinstance(current, dict):
+                    continue
+
+                if callable(current):
+                    m = _re_placeholder.match(clean_part)
+                    if m and len(m.groups()) >= 2:
+                        _, value = m.groups()
+                    else:
+                        value = ""
+
+                    args = self._parse_function_call(value)
+                    current = current(*args)  # Call the function
+        except Exception as e:
+            return f"[ ERROR:{key}: {e} ]"
+
+        return str(current) if not callable(current) else None
 
     def _parse_placeholder(self, m: re.Match) -> str:
         """
@@ -341,8 +355,8 @@ class TemplateParser:
         _, right_clean = self._process_quotes(right_raw.strip())
 
         # Try to resolve both sides from context
-        left_value = self._resolve_key(left_clean)
-        right_value = self._resolve_key(right_clean)
+        left_value = self._process_placeholders(left_clean)
+        right_value = self._process_placeholders(right_clean)
 
         # Fallback to raw literal if resolution failed
         if left_value is None:
