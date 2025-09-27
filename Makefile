@@ -21,25 +21,27 @@ reinstall: uninstall install  ## Reinstall the package
 
 # Development tools
 install_dev:	 ## Install the package in development mode
-	pip install .[dev]
+	uv sync --all-extras || pip install .[dev]
+
+test:	## Run tests with pytest
+	@cd tests && uv run test_basics.py
 
 venv:  ## Create a virtual environment
-	python -m venv .venv
-
-flake8:  ## Run flake8 on the package
-	@flake8 $(FLAKE8_CONFIG) tagify
-	@echo -e "\033[0;32mNo errors found.\033[0m"
+	uv venv || python -m venv .venv
 
 type:  ## Run pyright on the package
-	@pyright tagify --pythonversion 3.11
+	@uv run pyright tagify --pythonversion 3.11 || pyright tagify --pythonversion 3.11
+
+lint:  ## Run ruff linter
+	@uv run ruff check --config pyproject.toml || ruff check --config pyproject.toml
 
 clean:  ## Clean the project
 	@rm -rf build dist *.egg-info .venv docs/_build
+	@rm uv.lock
 
 # Maintainer-only commands
 upload_pypi:  ## Maintainer only - Upload latest version to PyPi
 	@echo Uploading to PyPi...
-	pip install .
-	python -m build
-	twine upload dist/*
+	uv build
+	uvx uv-publish
 	@echo Done!

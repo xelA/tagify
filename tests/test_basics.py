@@ -117,7 +117,6 @@ class TemplateParserTests(unittest.TestCase):
 
     def test_combined_logic(self):
         tmpl = """
-        {% set user_type = guest %}
         {% if user.name == Alice && user.age == 25 %}
         Welcome back, {user.name}!
         {% else %}

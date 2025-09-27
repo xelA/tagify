@@ -8,7 +8,7 @@ _re_placeholder = re.compile(
     flags=re.MULTILINE | re.DOTALL
 )
 _re_blocks = re.compile(r"{% elif (.+?) %}|{% else %}")
-_re_terms = re.compile(r"(\s&&\s|\s\|\|\s)")
+_re_terms = re.compile(r"(\s*&&\s*|\s*\|\|\s*)")
 _re_match = re.compile(r"([\w\(\)\., {}]+)\s*(==|!=)\s*(.+)")
 _re_variables = re.compile(r"{% set ([\w\d]+)\s*=\s*(.*) %}")
 _re_conditional_pattern = re.compile(
@@ -109,7 +109,25 @@ class TemplateParser:
         """
         for match in _re_variables.finditer(template):
             key, value = match.groups()
-            self.context[key.strip()] = self._process_placeholders(value.strip())
+            raw = value.strip()
+
+            # Strip wrapping quotes if present
+            is_q, unquoted = self._process_quotes(raw)
+            if is_q:
+                coerced = unquoted
+            else:
+                v = self._process_placeholders(raw)
+                try:
+                    coerced = int(v) if isinstance(v, str) and v.isdigit() else v
+                except Exception:
+                    coerced = v
+                if isinstance(coerced, str):
+                    try:
+                        coerced = float(coerced) if "." in coerced else coerced
+                    except ValueError:
+                        pass
+
+            self.context[key.strip()] = coerced
 
         return _re_variables.sub("", template)
 
@@ -132,34 +150,59 @@ class TemplateParser:
         """
         is_quotes, key = self._process_quotes(key)
         if is_quotes:
-            return key  # Already a string, return as-is
+            return key  # already a literal string
 
         parts = key.split(".")
         current = self.context
+        for part in parts:
+            if isinstance(current, dict):
+                if part in current:
+                    current = current[part]
+                    continue
+                return None
+
+            # (optional) safe attribute access
+            if current is not None and hasattr(current, part) and not part.startswith("__"):
+                current = getattr(current, part)
+                continue
+
+            return None
+
+        return current
+
+    def _coerce_literal(self, text: str) -> str | int | bool | float | None:
+        """
+        Coerce a string to its literal value if possible.
+
+        Parameters
+        ----------
+        text:
+            The string to coerce.
+
+        Returns
+        -------
+            The coerced literal value.
+        """
+        if not isinstance(text, str):
+            return text
+
+        t = text.strip()
+        if (t.startswith('"') and t.endswith('"')) or (t.startswith("'") and t.endswith("'")):
+            return t[1:-1]
+
+        low = t.lower()
+        if low in ("true", "false"):
+            return low == "true"
+        if low in ("none", "null"):
+            return None
 
         try:
-            for part in parts:
-                clean_part = part.split("(")[0]
-
-                if isinstance(current, dict):
-                    current = current.get(clean_part)
-
-                if isinstance(current, dict):
-                    continue
-
-                if callable(current):
-                    m = _re_placeholder.match(clean_part)
-                    if m and len(m.groups()) >= 2:
-                        _, value = m.groups()
-                    else:
-                        value = ""
-
-                    args = self._parse_function_call(value)
-                    current = current(*args)  # Call the function
-        except Exception as e:
-            return f"[ ERROR:{key}: {e} ]"
-
-        return str(current) if not callable(current) else None
+            return int(t)
+        except ValueError:
+            try:
+                return float(t)
+            except ValueError:
+                return t
 
     def _parse_placeholder(self, m: re.Match) -> str:
         """
@@ -330,7 +373,7 @@ class TemplateParser:
         """
         term = term.strip()
 
-        # Handle `not something`
+        # Handle `not X` conditions
         if term.startswith("not "):
             key = term[4:].strip()
             value = self._resolve_key(key)
@@ -344,43 +387,40 @@ class TemplateParser:
             value = self._resolve_key(term)
             return bool(value)
 
-        match_eq = _re_match.match(term)
-        if not match_eq:
-            return False
+        m = _re_match.match(term)
+        if not m:
+            # truthiness check like `{% if user.name %}`
+            v = self._resolve_key(term)
+            if v is None:
+                # treat as literal if it looks like a literal
+                v = self._coerce_literal(term)
+            return bool(v)
 
-        left_raw, operator, right_raw = match_eq.groups()
+        left_raw, operator, right_raw = m.groups()
+        lraw = left_raw.strip()
+        rraw = right_raw.strip()
 
-        # Clean quotes
-        _, left_clean = self._process_quotes(left_raw.strip())
-        _, right_clean = self._process_quotes(right_raw.strip())
+        # Try resolving as identifiers/paths
+        lval = self._resolve_key(lraw)
+        rval = self._resolve_key(rraw)
 
-        # Try to resolve both sides from context
-        left_value = self._process_placeholders(left_clean)
-        right_value = self._process_placeholders(right_clean)
+        # If unresolved, try placeholders (in case user wrote {var})
+        if lval is None and "{" in lraw:
+            lval = self._process_placeholders(lraw)
+        if rval is None and "{" in rraw:
+            rval = self._process_placeholders(rraw)
 
-        # Fallback to raw literal if resolution failed
-        if left_value is None:
-            left_value = left_clean
-        if right_value is None:
-            right_value = right_clean
-
-        # Try to cast both to int (safely)
-        for side, value in (("left", left_value), ("right", right_value)):
-            if isinstance(value, str):
-                try:
-                    value = float(value) if "." in value else int(value)
-                except ValueError:
-                    pass
-            if side == "left":
-                left_value = value
-            else:
-                right_value = value
+        # If still None or identical raw, treat as literals
+        if lval is None or lval == lraw:
+            lval = self._coerce_literal(lraw)
+        if rval is None or rval == rraw:
+            rval = self._coerce_literal(rraw)
 
         match operator:
             case "==":
-                return left_value == right_value
+                return lval == rval
             case "!=":
-                return left_value != right_value
+                return lval != rval
             case _:
                 raise ValueError(f"Invalid operator: {operator}")
 
