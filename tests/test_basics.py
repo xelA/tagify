@@ -1,3 +1,4 @@
+import random
 import unittest
 
 from tagify import TemplateParser
@@ -18,7 +19,8 @@ class TemplateParserTests(unittest.TestCase):
             "enabled": True,
             "truthy": "non-empty",
             "falsy": "",
-            "score": 75
+            "score": 75,
+            "random": random,
         }
         self.parser = TemplateParser(self.context)
 
@@ -114,6 +116,27 @@ class TemplateParserTests(unittest.TestCase):
             self.parser.render("   Hello {name}   "),
             "Hello World"
         )
+
+    def test_module_attr_function_call_placeholder(self):
+        # {random.randint(1, 1)} must resolve through module attribute navigation
+        self.assertEqual(
+            self.parser.render("{random.randint(1, 1)}"),
+            "1"
+        )
+
+    def test_if_with_braced_function_call(self):
+        # {random.randint(2, 2)} inside an if condition should evaluate correctly
+        result = self.parser.render(
+            "{% if {random.randint(2, 2)} == 2 %}Heads{% else %}Tails{% endif %}"
+        )
+        self.assertEqual(result, "Heads")
+
+    def test_if_with_bare_function_call(self):
+        # function calls without {} should work directly in if conditions
+        result = self.parser.render(
+            "{% if random.randint(2, 2) == 2 %}Heads{% else %}Tails{% endif %}"
+        )
+        self.assertEqual(result, "Heads")
 
     def test_combined_logic(self):
         tmpl = """

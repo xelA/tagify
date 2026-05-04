@@ -233,15 +233,16 @@ class TemplateParser:
             for part in parts:
                 if isinstance(current, dict):
                     current = current.get(part, safe_unused)
+                elif hasattr(current, part) and not part.startswith("__"):
+                    current = getattr(current, part)
 
                 if isinstance(current, dict):
-                    # Continue digging for now
-                    # There is probably a better way, but this works for now
                     continue
 
                 if callable(current):
                     args = self._parse_function_call(value)
-                    current = current(*args)  # Call the function
+                    current = current(*args)
+                    break
 
         except Exception as e:
             return f"[ ERROR:{func_key}: {e} ]"  # Handle any unexpected errors
@@ -327,6 +328,36 @@ class TemplateParser:
 
         return ""
 
+    def _resolve_call_expr(self, expr: str) -> object | None:
+        """
+        Resolve a bare dotted function-call expression like 'random.randint(1, 2)'.
+
+        Returns None if the expression cannot be resolved.
+        """
+        m = re.match(r"([\w.]+)\((.*)\)$", expr.strip(), re.DOTALL)
+        if not m:
+            return None
+
+        func_path, args_str = m.groups()
+        parts = func_path.split(".")
+        current: dict | object = self.context
+
+        for part in parts:
+            if isinstance(current, dict):
+                if part not in current:
+                    return None
+                current = current[part]
+            elif hasattr(current, part) and not part.startswith("__"):
+                current = getattr(current, part)
+            else:
+                return None
+
+        if callable(current):
+            args = self._parse_function_call(args_str)
+            return current(*args)
+
+        return None
+
     def _evaluate_condition(self, condition: str) -> bool:
         """
         Evaluate conditions safely without using eval.
@@ -406,9 +437,21 @@ class TemplateParser:
 
         # If unresolved, try placeholders (in case user wrote {var})
         if lval is None and "{" in lraw:
-            lval = self._process_placeholders(lraw)
+            resolved = self._process_placeholders(lraw)
+            lval = self._coerce_literal(resolved) if resolved != lraw else None
         if rval is None and "{" in rraw:
-            rval = self._process_placeholders(rraw)
+            resolved = self._process_placeholders(rraw)
+            rval = self._coerce_literal(resolved) if resolved != rraw else None
+
+        # If still unresolved, try bare function-call expressions like random.randint(1, 2)
+        if (lval is None or lval == lraw) and "(" in lraw:
+            resolved = self._resolve_call_expr(lraw)
+            if resolved is not None:
+                lval = resolved
+        if (rval is None or rval == rraw) and "(" in rraw:
+            resolved = self._resolve_call_expr(rraw)
+            if resolved is not None:
+                rval = resolved
 
         # If still None or identical raw, treat as literals
         if lval is None or lval == lraw:
