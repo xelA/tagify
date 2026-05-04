@@ -1,14 +1,6 @@
-FLAKE8_CONFIG := $(shell \
-	if python -c "import toml" 2>/dev/null; then \
-		python -c "import toml; data = toml.load('pyproject.toml'); flake8 = data.get('tool', {}).get('flake8', {}); max_line_length = flake8.get('max-line-length', 128); ignores = ' '.join(['--ignore=' + i for i in flake8.get('ignore', [])]); print(f'--max-line-length {max_line_length} {ignores}')"; \
-	else \
-		echo "--max-line-length 128"; \
-	fi)
-
 target:
-	@echo -e "\033[1mtagify v$(shell grep -oP '(?<=__version__ = ")[^"]*' tagify/__init__.py)\033[0m" \
-	"\nUse 'make \033[0;36mtarget\033[0m' where \033[0;36mtarget\033[0m is one of the following:"
-	@awk -F ':|##' '/^[^\t].+?:.*?##/ { printf " \033[0;36m%-15s\033[0m %s\n", $$1, $$NF }' $(MAKEFILE_LIST)
+	@printf "\033[1mTagify v$(shell grep -oP '(?<=__version__ = ")[^"]*' tagify/__init__.py)\033[0m / Use 'make \033[0;36mtarget\033[0m' where \033[0;36mtarget\033[0m is one of the following:\n\n"
+	@awk -F ':|##' '/^[^\t].+?:.*?##/ {t[++c]=$$1; d[c]=$$NF; type[c]=1; if(length($$1)>m) m=length($$1)} /^##@/ {type[++c]=0; text[c]=substr($$0, 5)} END {for(i=1;i<=c;i++) if(type[i]==1) printf "  \033[0;36m%-*s\033[0m %s\n", m, t[i], d[i]; else {if(h++) printf "\n"; printf "\033[1m%s\033[0m\n", text[i]}}' $(MAKEFILE_LIST)
 
 # Production tools
 install:  ## Install the package
