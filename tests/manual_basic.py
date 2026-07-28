@@ -2,19 +2,23 @@ from tagify import TemplateParser
 import random
 
 
-def add(a, b):
+def add(a: int, b: int) -> int:
+    """ Adds together. """
     return int(a) + int(b)
 
 
-def sub(a, b):
+def sub(a: int, b: int) -> int:
+    """ Subtracts. """
     return int(a) - int(b)
 
 
-def but_add(a, b):
+def but_add(a: int, b: int) -> int:
+    """ Adds anyways. """
     return add(int(a), -int(b))
 
 
-def random_choice(*args):
+def random_choice(*args: str) -> str:
+    """ We love random. """
     return random.choice(args)
 
 
@@ -37,7 +41,7 @@ test = TemplateParser(
     }
 )
 
-print(
+print(  # ruff: ignore[print]
     test.render(
         """
         {% set lmao = looool %}

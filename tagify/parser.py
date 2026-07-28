@@ -12,7 +12,7 @@ _re_terms = re.compile(r"(\s*&&\s*|\s*\|\|\s*)")
 _re_match = re.compile(r"([\w\(\)\., {}]+)\s*(==|!=)\s*(.+)")
 _re_variables = re.compile(r"{% set ([\w\d]+)\s*=\s*(.*) %}")
 _re_conditional_pattern = re.compile(
-    r"{% if (.+?) %}(.+?){% endif %}",
+    r"{% if ((?:(?!%}).)+?) %}((?:(?!{% if ).)*?){% endif %}",
     flags=re.DOTALL
 )
 
@@ -243,7 +243,6 @@ class TemplateParser:
                     args = self._parse_function_call(value)
                     current = current(*args)
                     break
-
         except Exception as e:
             return f"[ ERROR:{func_key}: {e} ]"  # Handle any unexpected errors
 
@@ -282,10 +281,18 @@ class TemplateParser:
         `str`
             The processed template string.
         """
-        return _re_conditional_pattern.sub(
-            self._evaluate_conditional_block,
-            template
-        )
+        # Resolve from the innermost if-block outward, since the pattern
+        # above only matches a block that contains no nested `{% if %}`.
+        while _re_conditional_pattern.search(template):
+            new_template = _re_conditional_pattern.sub(
+                self._evaluate_conditional_block,
+                template
+            )
+            if new_template == template:
+                break
+            template = new_template
+
+        return template
 
     def _evaluate_conditional_block(self, match: re.Match) -> str:
         """
