@@ -119,6 +119,55 @@ class TemplateParserTests(unittest.TestCase):
             "Yes"
         )
 
+    def test_comparison_gt(self) -> None:
+        """`>` comparison is true when the left side is numerically greater."""
+        self.assertEqual(
+            self.parser.render("{% if score > 50 %}Pass{% endif %}"),
+            "Pass"
+        )
+
+    def test_comparison_lt(self) -> None:
+        """`<` comparison is true when the left side is numerically smaller."""
+        self.assertEqual(
+            self.parser.render("{% if number < 5 %}Yes{% endif %}"),
+            ""
+        )
+
+    def test_comparison_gte(self) -> None:
+        """`>=` comparison is true when the values are equal."""
+        self.assertEqual(
+            self.parser.render("{% if number >= 10 %}Yes{% endif %}"),
+            "Yes"
+        )
+
+    def test_comparison_lte(self) -> None:
+        """`<=` comparison is true when the values are equal."""
+        self.assertEqual(
+            self.parser.render("{% if score <= 75 %}Yes{% endif %}"),
+            "Yes"
+        )
+
+    def test_comparison_gt_against_string_literal(self) -> None:
+        """`>` works against a numeric string literal on the right side."""
+        self.assertEqual(
+            self.parser.render("{% if user.age > 18 %}Adult{% endif %}"),
+            "Adult"
+        )
+
+    def test_comparison_ordering_negative_set_variable(self) -> None:
+        """A negative number assigned via `{% set %}` is coerced to int, not left as a string."""
+        self.assertEqual(
+            self.parser.render("{% set temp = -5 %}{% if temp < 0 %}Below Zero{% endif %}"),
+            "Below Zero"
+        )
+
+    def test_comparison_ordering_unorderable_returns_false(self) -> None:
+        """Comparing a non-numeric string against a number is falsy rather than raising."""
+        self.assertEqual(
+            self.parser.render("{% if name > 5 %}Yes{% else %}No{% endif %}"),
+            "No"
+        )
+
     def test_unresolvable_key(self) -> None:
         """A placeholder with no matching context key is left untouched."""
         self.assertIn(

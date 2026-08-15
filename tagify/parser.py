@@ -9,8 +9,8 @@ _re_placeholder = re.compile(
 )
 _re_blocks = re.compile(r"{% elif (.+?) %}|{% else %}")
 _re_terms = re.compile(r"(\s*&&\s*|\s*\|\|\s*)")
-_re_match = re.compile(r"([\w\(\)\., {}]+)\s*(==|!=)\s*(.+)")
-_re_variables = re.compile(r"{% set ([\w\d]+)\s*=\s*(.*) %}")
+_re_match = re.compile(r"([\w\(\)\., {}]+)\s*(==|!=|>=|<=|>|<)\s*(.+)")
+_re_variables = re.compile(r"{% set ([\w\d]+)\s*=\s*(.*?) %}")
 _re_conditional_pattern = re.compile(
     r"{% if ((?:(?!%}).)+?) %}((?:(?!{% if ).)*?){% endif %}",
     flags=re.DOTALL
@@ -22,25 +22,20 @@ __all__ = (
 
 
 class TemplateParser:
+    """ The parser class for Tagify. """
+    __slots__ = ("_conditionals", "context")
+
     def __init__(
         self,
         context: dict | None = None,
         *,
         conditionals: bool = True,
     ):
-        """
-        The parser class for Tagify.
-
-        Parameters
-        ----------
-        context: `dict`
-            The context dictionary to use for variable evaluation.
-        conditionals: `bool`
-            Whether to process if/else/elif blocks.
-        """
         self.context: dict[str, Any] = context or {}
+        """ The context dictionary to use for variable evaluation. """
 
-        self._conditionals = conditionals
+        self._conditionals: bool = conditionals
+        """ Whether to process if/else/elif blocks. """
 
     def render(self, template: str) -> str:
         """
@@ -48,12 +43,11 @@ class TemplateParser:
 
         Parameters
         ----------
-        template: `str`
+        template
             The template string to render.
 
         Returns
         -------
-        `str`
             The rendered template string.
         """
         # Strip any leading or trailing whitespace
@@ -73,12 +67,11 @@ class TemplateParser:
 
         Parameters
         ----------
-        key: `str`
+        key
             The template string to process.
 
         Returns
         -------
-        `tuple[bool, str]`
             A tuple containing a boolean indicating if the key is quoted and the
             processed key.
         """
@@ -99,12 +92,11 @@ class TemplateParser:
 
         Parameters
         ----------
-        template: `str`
+        template
             The template string to process.
 
         Returns
         -------
-        `str`
             The processed template string.
         """
         for match in _re_variables.finditer(template):
@@ -117,15 +109,7 @@ class TemplateParser:
                 coerced = unquoted
             else:
                 v = self._process_placeholders(raw)
-                try:
-                    coerced = int(v) if isinstance(v, str) and v.isdigit() else v
-                except Exception:
-                    coerced = v
-                if isinstance(coerced, str):
-                    try:
-                        coerced = float(coerced) if "." in coerced else coerced
-                    except ValueError:
-                        pass
+                coerced = self._coerce_literal(v)
 
             self.context[key.strip()] = coerced
 
@@ -140,12 +124,11 @@ class TemplateParser:
 
         Parameters
         ----------
-        key: `str`
+        key
             The key to resolve.
 
         Returns
         -------
-        `Any`
             The resolved value.
         """
         is_quotes, key = self._process_quotes(key)
@@ -176,7 +159,7 @@ class TemplateParser:
 
         Parameters
         ----------
-        text:
+        text
             The string to coerce.
 
         Returns
@@ -210,12 +193,11 @@ class TemplateParser:
 
         Parameters
         ----------
-        m: `re.Match`
+        m
             The match object for the placeholder.
 
         Returns
         -------
-        `str`
             The evaluated placeholder value.
         """
         if len(m.groups()) == 1:
@@ -254,12 +236,11 @@ class TemplateParser:
 
         Parameters
         ----------
-        template: `str`
+        template
             The template string to process.
 
         Returns
         -------
-        `str`
             The processed template string.
         """
         return _re_placeholder.sub(
@@ -273,12 +254,11 @@ class TemplateParser:
 
         Parameters
         ----------
-        template: `str`
+        template
             The template string to process.
 
         Returns
         -------
-        `str`
             The processed template string.
         """
         # Resolve from the innermost if-block outward, since the pattern
@@ -300,12 +280,11 @@ class TemplateParser:
 
         Parameters
         ----------
-        match: `re.Match`
+        match
             The match object for the conditional block.
 
         Returns
         -------
-        `str`
             The processed template string.
         """
         condition, content = match.groups()
@@ -339,7 +318,14 @@ class TemplateParser:
         """
         Resolve a bare dotted function-call expression like 'random.randint(1, 2)'.
 
-        Returns None if the expression cannot be resolved.
+        Parameters
+        ----------
+        expr
+            The dotted function-call expression to resolve.
+
+        Returns
+        -------
+            The resolved return value, or None if the expression cannot be resolved.
         """
         m = re.match(r"([\w.]+)\((.*)\)$", expr.strip(), re.DOTALL)
         if not m:
@@ -371,12 +357,11 @@ class TemplateParser:
 
         Parameters
         ----------
-        condition: `str`
+        condition
             The condition string to evaluate.
 
         Returns
         -------
-        `bool`
             The evaluated condition result.
         """
         # Split by logical operators and evaluate each subcondition
@@ -401,12 +386,11 @@ class TemplateParser:
 
         Parameters
         ----------
-        term: `str`
+        term
             The comparison expression to evaluate.
 
         Returns
         -------
-        `bool`
             The evaluated comparison result.
         """
         term = term.strip()
@@ -471,8 +455,61 @@ class TemplateParser:
                 return lval == rval
             case "!=":
                 return lval != rval
+            case ">" | "<" | ">=" | "<=":
+                return self._compare_ordered(lval, rval, operator)
             case _:
                 raise ValueError(f"Invalid operator: {operator}")
+
+    def _compare_ordered(self, lval: object, rval: object, operator: str) -> bool:
+        """
+        Evaluate an ordering comparison between two already-coerced values.
+
+        Only `>`, `<`, `>=`, and `<=` are supported.
+
+        Parameters
+        ----------
+        lval
+            The left-hand side value.
+        rval
+            The right-hand side value.
+        operator
+            One of `>`, `<`, `>=`, `<=`.
+
+        Returns
+        -------
+            The comparison result, or `False` if the values can't be ordered
+            (e.g. a string that isn't numeric compared against a number).
+        """
+        # bool is a subclass of int, but "is_admin > 0" isn't a meaningful
+        # ordering check, so treat booleans as unorderable.
+        if isinstance(lval, bool) or isinstance(rval, bool):
+            return False
+
+        if isinstance(lval, str) and isinstance(rval, (int, float)):
+            try:
+                lval = float(lval)
+            except ValueError:
+                return False
+        elif isinstance(rval, str) and isinstance(lval, (int, float)):
+            try:
+                rval = float(rval)
+            except ValueError:
+                return False
+
+        if not isinstance(lval, (int, float)) or not isinstance(rval, (int, float)):
+            return False
+
+        match operator:
+            case ">":
+                return lval > rval
+            case "<":
+                return lval < rval
+            case ">=":
+                return lval >= rval
+            case "<=":
+                return lval <= rval
+
+        return False
 
     def _parse_function_call(self, expr: str) -> list[str | int]:
         """
@@ -480,12 +517,11 @@ class TemplateParser:
 
         Parameters
         ----------
-        expr: `str`
+        expr
             The function call string to parse.
 
         Returns
         -------
-        `tuple[str, list[str]]`
             The function name and arguments.
         """
         args = []
